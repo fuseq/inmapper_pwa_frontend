@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk Uygulaması</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/style.css">
+    <meta name="theme-color" content="#2196f3">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Kiosk Uygulaması</h1>
+            <div id="connectionStatus" class="status-bar">Bağlantı durumu kontrol ediliyor...</div>
+            <div id="versionContainer" style="display: none;">
+                <p>Şu anki versiyon: <span id="versionTag"></span></p>
+            </div>
+        </header>
+        
+        <main id="dynamicContent">
+            <div class="loading">
+                <p>İçerik yükleniyor...</p>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/kiosk.js"></script>
+</body>
+
+</html>
