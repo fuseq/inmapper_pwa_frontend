@@ -1,4 +1,6 @@
 {
+  "name": "inmapper-pwa",
+  "version": "1.0.0",
   "dependencies": {
     "canvas": "^3.1.0",
     "socket.io-client": "^4.8.1"
