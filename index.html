@@ -11,8 +11,11 @@
     <!-- Backend'den gelen CSS ve JS dosyaları -->
     <link rel="stylesheet" type="text/css" href="http://localhost:5000/components/card/card.css">
     <link rel="stylesheet" type="text/css" href="http://localhost:5000/components/button/button.css">
+    <link rel="apple-touch-startup-image"
+        media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)"
+        href="../www/inmapper/launch5.png">
     <script src="http://localhost:5000/components/card/card.js"></script>
-
+    <link rel="icon" href="http://localhost:5000/components/img/inmapper.png">
     <style>
         body {
             margin: 0;
@@ -142,7 +145,7 @@
                 // Kart 1
                 new Card(cardContainer, {
                     title: '',
-                 
+
                 });
 
             } catch (error) {
@@ -169,6 +172,8 @@
         </main>
     </div>
     <script src="http://localhost:5000/components/button/button.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/1.5.10/clipboard.min.js"></script>
+    <script src="http://localhost:5000/data.json"></script>
 </body>
 
 </html>

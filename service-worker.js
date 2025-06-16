@@ -3,27 +3,97 @@ const BACKEND_URL = 'http://localhost:5000';
 let currentVersion = null;
 let urlsToCache = new Set();
 
-// HTML içindeki backend URL'lerini bul
-async function findBackendUrls() {
+// Desteklenen URL şemalarını kontrol et
+function isSupportedUrlScheme(url) {
+    // Eğer URL göreceli ise (http:// veya https:// ile başlamıyorsa) destekle
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return true;
+    }
+
+    try {
+        const urlObj = new URL(url);
+        // http, https ve data şemalarını destekle
+        return ['http:', 'https:', 'data:'].includes(urlObj.protocol);
+    } catch (e) {
+        // Geçersiz URL'leri reddet
+        return false;
+    }
+}
+
+// URL'leri kategorize et
+function categorizeUrl(url) {
+    // Göreceli URL'ler için
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return 'local';
+    }
+
+    try {
+        const urlObj = new URL(url);
+        if (urlObj.protocol === 'chrome-extension:') {
+            return 'unsupported';
+        }
+        if (url.startsWith(BACKEND_URL)) {
+            return 'backend';
+        } else {
+            return 'external';
+        }
+    } catch (e) {
+        // Geçersiz URL'ler için local olarak işle
+        return 'local';
+    }
+}
+
+// HTML içindeki tüm URL'leri bul
+async function findAllUrls() {
     try {
         // index.html'i getir
         const response = await fetch('/index.html');
         const html = await response.text();
 
         // Link tag'lerinden URL'leri bul
-        const linkRegex = new RegExp(`<link[^>]*href=["'](${BACKEND_URL}[^"']+)["'][^>]*>`, 'g');
+        const linkRegex = /<link[^>]*href=["']([^"']+)["'][^>]*>/g;
         let match;
         while ((match = linkRegex.exec(html)) !== null) {
-            urlsToCache.add(match[1]);
+            const url = match[1];
+            if (url.startsWith('//')) {
+                const fullUrl = 'https:' + url;
+                if (isSupportedUrlScheme(fullUrl)) {
+                    urlsToCache.add(fullUrl);
+                }
+            } else if (isSupportedUrlScheme(url)) {
+                urlsToCache.add(url);
+            }
         }
 
         // Script tag'lerinden URL'leri bul
-        const scriptRegex = new RegExp(`<script[^>]*src=["'](${BACKEND_URL}[^"']+)["'][^>]*>`, 'g');
+        const scriptRegex = /<script[^>]*src=["']([^"']+)["'][^>]*>/g;
         while ((match = scriptRegex.exec(html)) !== null) {
-            urlsToCache.add(match[1]);
+            const url = match[1];
+            if (url.startsWith('//')) {
+                const fullUrl = 'https:' + url;
+                if (isSupportedUrlScheme(fullUrl)) {
+                    urlsToCache.add(fullUrl);
+                }
+            } else if (isSupportedUrlScheme(url)) {
+                urlsToCache.add(url);
+            }
         }
 
-        console.log('Bulunan backend URL\'leri:', Array.from(urlsToCache));
+        // Image tag'lerinden URL'leri bul
+        const imgRegex = /<img[^>]*src=["']([^"']+)["'][^>]*>/g;
+        while ((match = imgRegex.exec(html)) !== null) {
+            const url = match[1];
+            if (url.startsWith('//')) {
+                const fullUrl = 'https:' + url;
+                if (isSupportedUrlScheme(fullUrl)) {
+                    urlsToCache.add(fullUrl);
+                }
+            } else if (isSupportedUrlScheme(url)) {
+                urlsToCache.add(url);
+            }
+        }
+
+        console.log('Bulunan URL\'ler:', Array.from(urlsToCache));
     } catch (error) {
         console.error('URL bulma hatası:', error);
     }
@@ -32,8 +102,8 @@ async function findBackendUrls() {
 // İlk kurulum için dosyaları cache'e kaydet
 async function initialCaching() {
     try {
-        // Önce backend URL'lerini bul
-        await findBackendUrls();
+        // Önce tüm URL'leri bul
+        await findAllUrls();
 
         // Versiyon bilgisini al
         const versionResponse = await fetch(`${BACKEND_URL}/version`, {
@@ -48,13 +118,22 @@ async function initialCaching() {
         // Bulunan URL'leri cache'e ekle
         for (const url of urlsToCache) {
             try {
-                const response = await fetch(url);
-                if (response.ok) {
+                const response = await fetch(url, {
+                    mode: 'no-cors', // External URL'ler için
+                    credentials: 'omit' // External URL'ler için
+                });
+                if (response.ok || response.type === 'opaque') {
                     await cache.put(url, response);
                 }
             } catch (error) {
                 console.error(`Dosya cache'leme hatası (${url}):`, error);
             }
+        }
+
+        // index.html'i de cache'e ekle
+        const indexResponse = await fetch('/index.html');
+        if (indexResponse.ok) {
+            await cache.put('/index.html', indexResponse);
         }
 
         console.log('İlk cache oluşturuldu, versiyon:', currentVersion);
@@ -71,29 +150,96 @@ self.addEventListener('install', (event) => {
 
 // Fetch olaylarını yakala
 self.addEventListener('fetch', (event) => {
-    const url = new URL(event.request.url);
+    const url = event.request.url;
+    const urlType = categorizeUrl(url);
     
-    // Backend URL'inden gelen ve cache listesinde olan istekleri kontrol et
-    if (url.origin === BACKEND_URL && urlsToCache.has(event.request.url)) {
+    // Desteklenmeyen URL şemaları için network'ten al
+    if (urlType === 'unsupported') {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+    
+    // Backend URL'lerinden gelen istekler için
+    if (urlType === 'backend') {
         event.respondWith(
-            // Önce cache'den dene
             caches.match(event.request)
                 .then(cachedResponse => {
                     if (cachedResponse) {
                         return cachedResponse;
                     }
-                    // Cache'de yoksa network'ten al ve cache'le
                     return fetch(event.request)
                         .then(response => {
-                            if (!response || response.status !== 200) {
-                                return response;
+                            if (response && response.status === 200) {
+                                const responseToCache = response.clone();
+                                caches.open(CACHE_NAME)
+                                    .then(cache => {
+                                        if (isSupportedUrlScheme(url)) {
+                                            cache.put(event.request, responseToCache);
+                                        }
+                                    });
                             }
-                            const responseToCache = response.clone();
-                            caches.open(CACHE_NAME)
-                                .then(cache => {
-                                    cache.put(event.request, responseToCache);
-                                });
                             return response;
+                        })
+                        .catch(error => {
+                            console.error('Network hatası:', error);
+                            return caches.match(event.request);
+                        });
+                })
+        );
+    }
+    // External URL'ler için
+    else if (urlType === 'external') {
+        event.respondWith(
+            caches.match(event.request)
+                .then(cachedResponse => {
+                    if (cachedResponse) {
+                        return cachedResponse;
+                    }
+                    return fetch(event.request, {
+                        mode: 'no-cors',
+                        credentials: 'omit'
+                    })
+                        .then(response => {
+                            if (response && (response.ok || response.type === 'opaque')) {
+                                const responseToCache = response.clone();
+                                caches.open(CACHE_NAME)
+                                    .then(cache => {
+                                        if (isSupportedUrlScheme(url)) {
+                                            cache.put(event.request, responseToCache);
+                                        }
+                                    });
+                            }
+                            return response;
+                        })
+                        .catch(() => {
+                            return caches.match(event.request);
+                        });
+                })
+        );
+    }
+    // Local URL'ler için
+    else {
+        event.respondWith(
+            caches.match(event.request)
+                .then(cachedResponse => {
+                    if (cachedResponse) {
+                        return cachedResponse;
+                    }
+                    return fetch(event.request)
+                        .then(response => {
+                            if (response && response.status === 200) {
+                                const responseToCache = response.clone();
+                                caches.open(CACHE_NAME)
+                                    .then(cache => {
+                                        if (isSupportedUrlScheme(url)) {
+                                            cache.put(event.request, responseToCache);
+                                        }
+                                    });
+                            }
+                            return response;
+                        })
+                        .catch(() => {
+                            return caches.match(event.request);
                         });
                 })
         );
@@ -112,7 +258,7 @@ async function checkVersion() {
         }
 
         // URL'leri yeniden kontrol et (yeni eklenmiş olabilir)
-        await findBackendUrls();
+        await findAllUrls();
 
         // Versiyon kontrolü
         const response = await fetch(`${BACKEND_URL}/version`, {
@@ -126,6 +272,12 @@ async function checkVersion() {
             
             // Tüm URL'leri yeni versiyonla güncelle
             for (const url of urlsToCache) {
+                // Desteklenmeyen URL şemalarını atla
+                if (!isSupportedUrlScheme(url)) {
+                    console.log(`Desteklenmeyen URL şeması atlandı: ${url}`);
+                    continue;
+                }
+
                 try {
                     const response = await fetch(url, { 
                         cache: 'reload',
